@@ -5,6 +5,7 @@ namespace Bolt\Controller\Backend;
 use Bolt\AccessControl\Token\Token;
 use Bolt\Events\AccessControlEvent;
 use Bolt\Events\AccessControlEvents;
+use Bolt\Response\TemplateView;
 use Bolt\Translation\Translator as Trans;
 use Silex\ControllerCollection;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -59,10 +60,19 @@ class Authentication extends BackendBase
         }
 
         $response = $this->render('@bolt/login/login.twig', ['randomquote' => true]);
-        $response->setVary('Cookies', false)->setMaxAge(0)->setPrivate();
-
-        if ($resetCookies) {
-            $response->headers->clearCookie($this->app['token.authentication.name']);
+        if ($response instanceof TemplateView) {
+            $this->app->after(function (Request $request, Response $response) use ($resetCookies) {
+                $response->setVary('Cookies', false)->setMaxAge(0)->setPrivate();
+                if ($resetCookies) {
+                    $response->headers->clearCookie($this->app['token.authentication.name']);
+                }
+            });
+        } else {
+            /** @deprecated Deprecated since 3.3, to be removed in 4.0. */
+            $response->setVary('Cookies', false)->setMaxAge(0)->setPrivate();
+            if ($resetCookies) {
+                $response->headers->clearCookie($this->app['token.authentication.name']);
+            }
         }
 
         return $response;
