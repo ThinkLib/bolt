@@ -7,6 +7,7 @@ use Bolt\Response\TemplateResponse;
 use Silex\ControllerCollection;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 /**
  * Async controller for Stack async routes.
@@ -20,10 +21,20 @@ class Stack extends AsyncBase
     {
         $c->post('/stack/add', 'add')
             ->assert('filename', '.*')
-            ->bind('stack/add');
+            ->bind('stack/add')
+        ;
 
         $c->get('/stack/show', 'show')
-            ->bind('stack/show');
+            ->bind('stack/show')
+        ;
+
+        $c->get('/stack/panel/{fileName}', 'panelItem')
+            ->bind('stack/panelItem')
+        ;
+
+        $c->get('/stack/list/{fileName}', 'listItem')
+            ->bind('stack/listItem')
+        ;
     }
 
     /**
@@ -35,15 +46,15 @@ class Stack extends AsyncBase
      */
     public function add(Request $request)
     {
-        $filename = $request->request->get('filename');
-
+        $fileName = $request->request->get('filename');
         $stack = $this->app['stack'];
 
         /** @var FileInterface|null $removed */
-        $file = $stack->add($filename, $removed);
+        $file = $stack->add($fileName, $removed);
+        $fileName = $file->getFullPath();
 
-        $panel = $this->render('@bolt/components/stack/panel-item.twig', ['file' => $file]);
-        $list = $this->render('@bolt/components/stack/list-item.twig', ['file' => $file]);
+        $panel = $this->makeItemSubRequest($request, 'stack/panelItem', $fileName);
+        $list = $this->makeItemSubRequest($request, 'stack/listItem', $fileName);
 
         $type = $file->getType();
         $type = !in_array($type, ['image', 'document']) ? 'other' : $type;
@@ -54,6 +65,37 @@ class Stack extends AsyncBase
             'panel'   => $panel->getContent(),
             'list'    => $list->getContent(),
         ]);
+    }
+
+    /**
+     * Render a Stack panel file item.
+     *
+     * @param string $fileName
+     *
+     * @return TemplateResponse|\Bolt\Response\TemplateView
+     */
+    public function panelItem($fileName)
+    {
+        /** @var FileInterface|null $file */
+        $file = $this->filesystem()->getFile(urldecode($fileName));
+
+        return $this->render('@bolt/components/stack/panel-item.twig', ['file' => $file]);
+
+    }
+
+    /**
+     * Render a Stack list file item.
+     *
+     * @param string $fileName
+     *
+     * @return TemplateResponse|\Bolt\Response\TemplateView
+     */
+    public function listItem($fileName)
+    {
+        /** @var FileInterface|null $file */
+        $file = $this->filesystem()->getFile(urldecode($fileName));
+
+        return $this->render('@bolt/components/stack/list-item.twig', ['file' => $file]);
     }
 
     /**
@@ -84,5 +126,23 @@ class Stack extends AsyncBase
         ];
 
         return $this->render($template, ['context' => $context]);
+    }
+
+    /**
+     * Perform, and return, a sub request for a rendered HTML stack item.
+     *
+     * @param Request $request
+     * @param string  $routeName
+     * @param string  $fileName
+     *
+     * @return \Symfony\Component\HttpFoundation\Response
+     */
+    private function makeItemSubRequest(Request $request, $routeName, $fileName)
+    {
+        $panelUri = $this->generateUrl($routeName, ['fileName' => urlencode($fileName)]);
+        $subRequest = Request::create($panelUri, Request::METHOD_GET, [], $request->cookies->all(), [], $request->server->all());
+        $subRequest->setSession($request->getSession());
+
+        return $this->app->handle($subRequest, HttpKernelInterface::SUB_REQUEST, false);
     }
 }
